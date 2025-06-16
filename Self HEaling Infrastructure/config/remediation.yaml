@@ -1,0 +1,402 @@
+# SelfHealing Sentinel - Remediation Configuration
+
+# Global remediation settings
+global:
+  enabled: true  # Master switch for all remediation actions
+  max_concurrent_actions: 5  # Maximum number of concurrent remediation actions
+  default_cooldown: 300  # Default cooldown period in seconds between actions on the same target
+  action_timeout: 120  # Default timeout for remediation actions in seconds
+  retry_failed_actions: true  # Whether to retry failed actions
+  max_retries: 3  # Maximum number of retries for failed actions
+  retry_interval: 60  # Interval between retries in seconds
+  escalation_enabled: true  # Whether to enable escalation to more severe actions
+  escalation_delay: 1800  # Delay before escalation in seconds (30 minutes)
+  requires_approval:
+    default: false  # Default approval requirement
+    critical_actions: true  # Require approval for critical actions
+
+# Action definitions
+actions:
+  # Pod-level actions
+  restart_pod:
+    enabled: true
+    description: "Restart a pod by deleting it and letting Kubernetes recreate it"
+    target_type: "pod"
+    command: "kubectl delete pod {target} --namespace {namespace}"
+    timeout: 60  # Seconds
+    cooldown: 300  # Seconds
+    max_attempts: 3
+    requires_approval: false
+    escalation: recreate_deployment
+    success_metric: "kube_pod_status_phase{phase=\"Running\", pod=\"{target}\"} == 1"
+    success_timeout: 120  # Seconds to wait for success metric
+
+  # Deployment-level actions
+  scale_deployment:
+    enabled: true
+    description: "Scale a deployment to a specified number of replicas"
+    target_type: "deployment"
+    command: "kubectl scale deployment {target} --replicas={replicas} --namespace {namespace}"
+    parameters:
+      replicas:
+        description: "Number of replicas to scale to"
+        type: "integer"
+        default: "{current_replicas + 1}"  # Default to scaling up by 1
+        min: 1
+        max: 10
+    timeout: 120  # Seconds
+    cooldown: 600  # Seconds
+    max_attempts: 2
+    requires_approval: false
+    escalation: recreate_deployment
+    success_metric: "kube_deployment_status_replicas_available{deployment=\"{target}\"} >= {replicas}"
+    success_timeout: 300  # Seconds to wait for success metric
+
+  recreate_deployment:
+    enabled: true
+    description: "Recreate a deployment by performing a rolling restart"
+    target_type: "deployment"
+    command: "kubectl rollout restart deployment {target} --namespace {namespace}"
+    timeout: 300  # Seconds
+    cooldown: 1800  # Seconds
+    max_attempts: 1
+    requires_approval: true
+    escalation: notify_admin
+    success_metric: "kube_deployment_status_replicas_updated{deployment=\"{target}\"} == kube_deployment_spec_replicas{deployment=\"{target}\"}"
+    success_timeout: 600  # Seconds to wait for success metric
+
+  # Node-level actions
+  cordon_node:
+    enabled: true
+    description: "Mark a node as unschedulable to prevent new pods from being scheduled"
+    target_type: "node"
+    command: "kubectl cordon {target}"
+    timeout: 30  # Seconds
+    cooldown: 1800  # Seconds
+    max_attempts: 2
+    requires_approval: false
+    escalation: drain_node
+    success_metric: "kube_node_spec_unschedulable{node=\"{target}\"} == 1"
+    success_timeout: 60  # Seconds to wait for success metric
+
+  drain_node:
+    enabled: true
+    description: "Drain all pods from a node and mark it as unschedulable"
+    target_type: "node"
+    command: "kubectl drain {target} --ignore-daemonsets --delete-emptydir-data --force"
+    timeout: 300  # Seconds
+    cooldown: 3600  # Seconds
+    max_attempts: 1
+    requires_approval: true
+    escalation: restart_node
+    success_metric: "kube_node_spec_unschedulable{node=\"{target}\"} == 1 and sum(kube_pod_info{node=\"{target}\", namespace!='kube-system'}) == 0"
+    success_timeout: 600  # Seconds to wait for success metric
+
+  restart_node:
+    enabled: true
+    description: "Restart a node using Ansible playbook"
+    target_type: "node"
+    command: "ansible-playbook -i {inventory} ansible/playbooks/node-recovery-playbook.yml --extra-vars \"target={target}\""
+    parameters:
+      inventory:
+        description: "Path to Ansible inventory file"
+        type: "string"
+        default: "ansible/inventory/hosts"
+    timeout: 600  # Seconds
+    cooldown: 3600  # Seconds
+    max_attempts: 1
+    requires_approval: true
+    escalation: notify_admin
+    success_metric: "up{instance=~\"{target}.*\"} == 1"
+    success_timeout: 1200  # Seconds to wait for success metric
+
+  # Service-level actions
+  restart_service:
+    enabled: true
+    description: "Restart a Kubernetes service by restarting its pods"
+    target_type: "service"
+    command: "kubectl get pods --selector=app={target} -o name --namespace {namespace} | xargs -I{} kubectl delete {} --namespace {namespace}"
+    timeout: 120  # Seconds
+    cooldown: 600  # Seconds
+    max_attempts: 2
+    requires_approval: false
+    escalation: recreate_service_deployment
+    success_metric: "kube_service_info{service=\"{target}\"} == 1 and kube_endpoint_address_available{endpoint=\"{target}\"} > 0"
+    success_timeout: 300  # Seconds to wait for success metric
+
+  recreate_service_deployment:
+    enabled: true
+    description: "Recreate the deployment behind a service"
+    target_type: "service"
+    command: "kubectl get deployment --selector=app={target} -o name --namespace {namespace} | xargs -I{} kubectl rollout restart {} --namespace {namespace}"
+    timeout: 300  # Seconds
+    cooldown: 1800  # Seconds
+    max_attempts: 1
+    requires_approval: true
+    escalation: notify_admin
+    success_metric: "kube_service_info{service=\"{target}\"} == 1 and kube_endpoint_address_available{endpoint=\"{target}\"} > 0"
+    success_timeout: 600  # Seconds to wait for success metric
+
+  # Application-specific actions
+  restart_sentinel_component:
+    enabled: true
+    description: "Restart a SelfHealing Sentinel component"
+    target_type: "sentinel_component"
+    command: "kubectl rollout restart deployment {target} --namespace {namespace}"
+    timeout: 120  # Seconds
+    cooldown: 600  # Seconds
+    max_attempts: 2
+    requires_approval: false
+    escalation: notify_admin
+    success_metric: "up{job=\"sentinel-components\", instance=~\"{target}.*\"} == 1"
+    success_timeout: 300  # Seconds to wait for success metric
+
+  # Notification actions
+  notify_admin:
+    enabled: true
+    description: "Notify administrators about an issue that requires manual intervention"
+    target_type: "any"
+    command: "python python/notification/send_alert.py --severity {severity} --target {target} --issue \"{issue}\" --action \"{action}\""
+    parameters:
+      severity:
+        description: "Severity of the issue"
+        type: "string"
+        default: "critical"
+        allowed_values: ["low", "medium", "high", "critical"]
+      issue:
+        description: "Description of the issue"
+        type: "string"
+        default: "Automated remediation failed"
+      action:
+        description: "Recommended action"
+        type: "string"
+        default: "Manual intervention required"
+    timeout: 30  # Seconds
+    cooldown: 1800  # Seconds
+    max_attempts: 3
+    requires_approval: false
+    success_metric: "sentinel_notification_sent{target=\"{target}\", severity=\"{severity}\"} > 0"
+    success_timeout: 60  # Seconds to wait for success metric
+
+# Mapping of alerts to remediation actions
+alert_remediation_map:
+  # Node alerts
+  NodeNotReady:
+    action: restart_node
+    parameters: {}
+    priority: high
+
+  NodeHighCPU:
+    action: cordon_node
+    parameters: {}
+    priority: medium
+
+  NodeHighMemory:
+    action: cordon_node
+    parameters: {}
+    priority: medium
+
+  NodeDiskPressure:
+    action: cordon_node
+    parameters: {}
+    priority: high
+
+  NodeNetworkUnavailable:
+    action: restart_node
+    parameters: {}
+    priority: high
+
+  # Pod alerts
+  PodCrashLooping:
+    action: restart_pod
+    parameters: {}
+    priority: high
+
+  PodNotReady:
+    action: restart_pod
+    parameters: {}
+    priority: medium
+
+  PodHighCPU:
+    action: restart_pod
+    parameters: {}
+    priority: low
+
+  PodHighMemory:
+    action: restart_pod
+    parameters: {}
+    priority: medium
+
+  # Deployment alerts
+  DeploymentReplicasMismatch:
+    action: scale_deployment
+    parameters:
+      replicas: "{desired_replicas}"
+    priority: medium
+
+  DeploymentNotAvailable:
+    action: recreate_deployment
+    parameters: {}
+    priority: high
+
+  # Service alerts
+  ServiceEndpointDown:
+    action: restart_service
+    parameters: {}
+    priority: high
+
+  ServiceHighLatency:
+    action: restart_service
+    parameters: {}
+    priority: medium
+
+  ServiceHighErrorRate:
+    action: restart_service
+    parameters: {}
+    priority: high
+
+  # SelfHealing Sentinel component alerts
+  SentinelComponentDown:
+    action: restart_sentinel_component
+    parameters: {}
+    priority: critical
+
+  SentinelComponentHighLatency:
+    action: restart_sentinel_component
+    parameters: {}
+    priority: high
+
+  SentinelComponentHighErrorRate:
+    action: restart_sentinel_component
+    parameters: {}
+    priority: high
+
+  # Default action for unknown alerts
+  default:
+    action: notify_admin
+    parameters:
+      severity: "high"
+      issue: "Unknown alert triggered"
+      action: "Investigate and take appropriate action"
+    priority: medium
+
+# Anomaly detection remediation mapping
+anomaly_remediation_map:
+  # Node anomalies
+  node_cpu_anomaly:
+    action: cordon_node
+    parameters: {}
+    priority: medium
+
+  node_memory_anomaly:
+    action: cordon_node
+    parameters: {}
+    priority: medium
+
+  node_disk_anomaly:
+    action: cordon_node
+    parameters: {}
+    priority: high
+
+  node_network_anomaly:
+    action: restart_node
+    parameters: {}
+    priority: high
+
+  # Pod anomalies
+  pod_cpu_anomaly:
+    action: restart_pod
+    parameters: {}
+    priority: low
+
+  pod_memory_anomaly:
+    action: restart_pod
+    parameters: {}
+    priority: medium
+
+  pod_restart_anomaly:
+    action: recreate_deployment
+    parameters: {}
+    priority: high
+
+  # Service anomalies
+  service_latency_anomaly:
+    action: restart_service
+    parameters: {}
+    priority: medium
+
+  service_error_rate_anomaly:
+    action: restart_service
+    parameters: {}
+    priority: high
+
+  # Default action for unknown anomalies
+  default:
+    action: notify_admin
+    parameters:
+      severity: "medium"
+      issue: "Unknown anomaly detected"
+      action: "Investigate and take appropriate action"
+    priority: low
+
+# Cooldown periods for specific targets (overrides action defaults)
+target_cooldowns:
+  # Critical infrastructure components
+  "node/master-node-*":
+    cooldown: 3600  # 1 hour
+    requires_approval: true
+
+  "deployment/kube-dns":
+    cooldown: 1800  # 30 minutes
+    requires_approval: true
+
+  "deployment/prometheus":
+    cooldown: 1800  # 30 minutes
+    requires_approval: true
+
+  "deployment/alertmanager":
+    cooldown: 1800  # 30 minutes
+    requires_approval: true
+
+  # SelfHealing Sentinel components
+  "deployment/remediation-orchestrator":
+    cooldown: 1800  # 30 minutes
+    requires_approval: true
+
+  "deployment/anomaly-detector":
+    cooldown: 1800  # 30 minutes
+    requires_approval: true
+
+  "deployment/sentinel-api":
+    cooldown: 1800  # 30 minutes
+    requires_approval: true
+
+# Action history retention
+history:
+  retention_days: 30  # Number of days to retain action history
+  max_entries: 10000  # Maximum number of history entries to retain
+  storage_path: "data/remediation_history.db"  # Path to history storage
+
+# Notification settings for remediation actions
+notifications:
+  on_action_start: true
+  on_action_success: true
+  on_action_failure: true
+  on_escalation: true
+  channels:
+    slack:
+      enabled: true
+      webhook_url: "https://hooks.slack.com/services/TXXXXXXXX/BXXXXXXXX/XXXXXXXXXXXXXXXXXXXXXXXX"
+      channel: "#sentinel-alerts"
+      username: "SelfHealing Sentinel"
+      icon_emoji: ":robot_face:"
+    email:
+      enabled: false
+      recipients: ["admin@example.com"]
+    webhook:
+      enabled: false
+      url: "https://example.com/webhook"
+      method: "POST"
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Bearer token"

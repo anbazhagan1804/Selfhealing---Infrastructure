@@ -1,0 +1,155 @@
+---
+# Ansible Playbook for Node Recovery in SelfHealing Sentinel
+# This playbook automates the recovery of failed Kubernetes nodes
+
+- name: Node Recovery Playbook
+  hosts: all
+  become: true
+  gather_facts: true
+  
+  vars:
+    failed_node: "{{ node_name | default('') }}"
+    recovery_timeout: "{{ timeout | default(300) }}"
+    cluster_name: "{{ cluster | default('production') }}"
+    notification_email: "{{ email | default('admin@example.com') }}"
+    log_file: "/var/log/sentinel/recovery-{{ ansible_date_time.date }}.log"
+  
+  pre_tasks:
+    - name: Validate required parameters
+      fail:
+        msg: "Failed node name is required"
+      when: failed_node == ''
+    
+    - name: Create log directory
+      file:
+        path: "/var/log/sentinel"
+        state: directory
+        mode: '0755'
+      ignore_errors: true
+    
+    - name: Log recovery start
+      lineinfile:
+        path: "{{ log_file }}"
+        line: "{{ ansible_date_time.iso8601 }} - Starting recovery for node {{ failed_node }}"
+        create: yes
+      ignore_errors: true
+  
+  tasks:
+    - name: Check if node exists
+      shell: kubectl get node {{ failed_node }} -o name
+      register: node_exists
+      ignore_errors: true
+      changed_when: false
+      delegate_to: localhost
+    
+    - name: Get node status
+      shell: kubectl get node {{ failed_node }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      register: node_status
+      ignore_errors: true
+      changed_when: false
+      delegate_to: localhost
+      when: node_exists.rc == 0
+    
+    - name: Cordon failed node
+      shell: kubectl cordon {{ failed_node }}
+      delegate_to: localhost
+      when: node_exists.rc == 0
+      register: cordon_result
+    
+    - name: Drain failed node
+      shell: >
+        kubectl drain {{ failed_node }} 
+        --ignore-daemonsets 
+        --delete-emptydir-data 
+        --force 
+        --timeout={{ recovery_timeout }}s
+      delegate_to: localhost
+      when: node_exists.rc == 0
+      register: drain_result
+      ignore_errors: true
+    
+    - name: Get pods on failed node
+      shell: kubectl get pods --all-namespaces -o wide --field-selector spec.nodeName={{ failed_node }} -o json
+      register: node_pods
+      delegate_to: localhost
+      when: node_exists.rc == 0
+      changed_when: false
+    
+    - name: Force delete stuck pods
+      shell: >
+        kubectl delete pod {{ item.metadata.name }} 
+        -n {{ item.metadata.namespace }} 
+        --force 
+        --grace-period=0
+      delegate_to: localhost
+      loop: "{{ node_pods.stdout | from_json | json_query('items[*]') }}"
+      when: 
+        - node_exists.rc == 0
+        - drain_result is failed
+        - node_pods.stdout | from_json | json_query('items') | length > 0
+      ignore_errors: true
+    
+    - name: Delete failed node from Kubernetes
+      shell: kubectl delete node {{ failed_node }}
+      delegate_to: localhost
+      when: node_exists.rc == 0
+      register: delete_result
+    
+    - name: Restart kubelet service on failed node
+      service:
+        name: kubelet
+        state: restarted
+      when: inventory_hostname == failed_node
+      ignore_errors: true
+      register: kubelet_restart
+    
+    - name: Wait for node to rejoin cluster
+      shell: kubectl get node {{ failed_node }} -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+      register: rejoin_status
+      until: rejoin_status.stdout == "True"
+      retries: 10
+      delay: 30
+      delegate_to: localhost
+      ignore_errors: true
+      changed_when: false
+    
+    - name: Uncordon node if it rejoined
+      shell: kubectl uncordon {{ failed_node }}
+      delegate_to: localhost
+      when: rejoin_status.stdout == "True"
+      register: uncordon_result
+    
+    - name: Check for persistent node failure
+      set_fact:
+        node_recovery_failed: true
+      when: rejoin_status.stdout != "True"
+    
+    - name: Trigger node replacement if recovery failed
+      include_tasks: tasks/replace_node.yml
+      when: node_recovery_failed is defined and node_recovery_failed
+  
+  post_tasks:
+    - name: Log recovery result
+      lineinfile:
+        path: "{{ log_file }}"
+        line: "{{ ansible_date_time.iso8601 }} - Node recovery {{ 'succeeded' if (rejoin_status.stdout == 'True') else 'failed' }} for {{ failed_node }}"
+        create: yes
+      ignore_errors: true
+    
+    - name: Send notification email
+      mail:
+        host: smtp.example.com
+        port: 25
+        subject: "Node Recovery {{ 'Succeeded' if (rejoin_status.stdout == 'True') else 'Failed' }} - {{ failed_node }}"
+        body: |
+          Node recovery operation details:
+          - Node: {{ failed_node }}
+          - Cluster: {{ cluster_name }}
+          - Time: {{ ansible_date_time.iso8601 }}
+          - Status: {{ 'Recovered successfully' if (rejoin_status.stdout == 'True') else 'Recovery failed, node replacement triggered' }}
+          
+          Please check the logs at {{ log_file }} for more details.
+        to: "{{ notification_email }}"
+        from: "sentinel@example.com"
+      ignore_errors: true
+      delegate_to: localhost

@@ -1,0 +1,158 @@
+# Alertmanager configuration for SelfHealing Sentinel
+
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alertmanager@example.com'
+  smtp_auth_username: 'alertmanager'
+  smtp_auth_password: 'password'  # Replace with actual password in production
+  smtp_require_tls: true
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+route:
+  group_by: ['alertname', 'category', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'sentinel-remediation'
+  routes:
+    # Critical alerts that require immediate attention
+    - match:
+        severity: critical
+      receiver: 'sentinel-remediation'
+      continue: true
+      routes:
+        - match:
+            category: node
+          receiver: 'ops-team'
+          continue: true
+        - match:
+            category: kubernetes
+          receiver: 'k8s-admin'
+          continue: true
+
+    # High severity alerts
+    - match:
+        severity: high
+      receiver: 'sentinel-remediation'
+      group_wait: 1m
+      continue: true
+
+    # Medium severity alerts
+    - match:
+        severity: medium
+      receiver: 'sentinel-remediation'
+      group_wait: 2m
+      continue: true
+
+    # Low severity alerts
+    - match:
+        severity: low
+      receiver: 'monitoring-team'
+      group_wait: 5m
+
+    # Alerts with no remediation action
+    - match:
+        remediation_action: none
+      receiver: 'monitoring-team'
+
+    # Send all node-related alerts to ops team
+    - match:
+        category: node
+      receiver: 'ops-team'
+
+    # Send all Kubernetes-related alerts to k8s admin
+    - match:
+        category: kubernetes
+      receiver: 'k8s-admin'
+
+    # Send all application-related alerts to dev team
+    - match:
+        category: application
+      receiver: 'dev-team'
+
+inhibit_rules:
+  # Inhibit node-not-ready alerts if the cluster-down alert is firing
+  - source_match:
+      alertname: 'KubernetesClusterDown'
+    target_match:
+      alertname: 'KubernetesNodeNotReady'
+    equal: ['cluster']
+
+  # Inhibit pod-related alerts if the node is not ready
+  - source_match:
+      alertname: 'KubernetesNodeNotReady'
+    target_match:
+      category: 'pod'
+    equal: ['node']
+
+  # Inhibit low severity alerts if there is a high severity alert for the same component
+  - source_match:
+      severity: 'critical'
+    target_match_re:
+      severity: '^(high|medium|low)$'
+    equal: ['alertname', 'instance']
+
+  - source_match:
+      severity: 'high'
+    target_match_re:
+      severity: '^(medium|low)$'
+    equal: ['alertname', 'instance']
+
+  - source_match:
+      severity: 'medium'
+    target_match_re:
+      severity: '^low$'
+    equal: ['alertname', 'instance']
+
+receivers:
+  - name: 'sentinel-remediation'
+    webhook_configs:
+      - url: 'http://remediation-orchestrator:5000/api/v1/alerts'
+        send_resolved: true
+
+  - name: 'ops-team'
+    email_configs:
+      - to: 'ops-team@example.com'
+        send_resolved: true
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
+        channel: '#ops-alerts'
+        title: '{{ template "slack.default.title" . }}'
+        text: '{{ template "slack.default.text" . }}'
+        send_resolved: true
+
+  - name: 'k8s-admin'
+    email_configs:
+      - to: 'k8s-admin@example.com'
+        send_resolved: true
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
+        channel: '#kubernetes-alerts'
+        title: '{{ template "slack.default.title" . }}'
+        text: '{{ template "slack.default.text" . }}'
+        send_resolved: true
+
+  - name: 'dev-team'
+    email_configs:
+      - to: 'dev-team@example.com'
+        send_resolved: true
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
+        channel: '#dev-alerts'
+        title: '{{ template "slack.default.title" . }}'
+        text: '{{ template "slack.default.text" . }}'
+        send_resolved: true
+
+  - name: 'monitoring-team'
+    email_configs:
+      - to: 'monitoring@example.com'
+        send_resolved: true
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
+        channel: '#monitoring'
+        title: '{{ template "slack.default.title" . }}'
+        text: '{{ template "slack.default.text" . }}'
+        send_resolved: true

@@ -1,0 +1,251 @@
+# SelfHealing Sentinel - Anomaly Detection Thresholds
+
+# Node-level thresholds
+node:
+  cpu:
+    warning: 70  # Percentage
+    critical: 90  # Percentage
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+  memory:
+    warning: 75  # Percentage
+    critical: 90  # Percentage
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+  disk:
+    warning: 80  # Percentage
+    critical: 90  # Percentage
+    duration: 600  # Seconds (10 minutes)
+    anomaly_sensitivity: 1.2  # Multiplier for anomaly detection
+  network:
+    rx_bytes_per_second:
+      warning: 100000000  # 100 MB/s
+      critical: 500000000  # 500 MB/s
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 2.0  # Multiplier for anomaly detection
+    tx_bytes_per_second:
+      warning: 100000000  # 100 MB/s
+      critical: 500000000  # 500 MB/s
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 2.0  # Multiplier for anomaly detection
+  load:
+    warning: 0.8  # Load average / CPU cores
+    critical: 0.95  # Load average / CPU cores
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+
+# Pod-level thresholds
+pod:
+  cpu:
+    warning: 80  # Percentage of request
+    critical: 100  # Percentage of request
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+  memory:
+    warning: 85  # Percentage of request
+    critical: 95  # Percentage of request
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.3  # Multiplier for anomaly detection
+  restarts:
+    warning: 3  # Number of restarts
+    critical: 5  # Number of restarts
+    duration: 1800  # Seconds (30 minutes)
+    anomaly_sensitivity: 1.0  # Multiplier for anomaly detection
+  pending:
+    warning: 300  # Seconds (5 minutes)
+    critical: 600  # Seconds (10 minutes)
+    anomaly_sensitivity: 1.0  # Multiplier for anomaly detection
+
+# Container-level thresholds
+container:
+  restart_count:
+    warning: 3  # Number of restarts
+    critical: 5  # Number of restarts
+    duration: 1800  # Seconds (30 minutes)
+    anomaly_sensitivity: 1.0  # Multiplier for anomaly detection
+  terminated_reason:
+    oom_killed:
+      severity: critical
+      cooldown: 600  # Seconds (10 minutes)
+    error:
+      severity: high
+      cooldown: 300  # Seconds (5 minutes)
+
+# Deployment-level thresholds
+deployment:
+  available_replicas:
+    warning: 0.7  # Percentage of desired replicas
+    critical: 0.5  # Percentage of desired replicas
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.0  # Multiplier for anomaly detection
+  unavailable_replicas:
+    warning: 0.3  # Percentage of desired replicas
+    critical: 0.5  # Percentage of desired replicas
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.0  # Multiplier for anomaly detection
+
+# Service-level thresholds
+service:
+  latency:
+    warning: 1.0  # Seconds
+    critical: 3.0  # Seconds
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 2.0  # Multiplier for anomaly detection
+  error_rate:
+    warning: 0.05  # 5% of requests
+    critical: 0.1  # 10% of requests
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+  success_rate:
+    warning: 0.95  # 95% of requests
+    critical: 0.9  # 90% of requests
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+
+# Kubernetes component thresholds
+kubernetes:
+  api_server:
+    latency:
+      warning: 0.5  # Seconds
+      critical: 1.0  # Seconds
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+    error_rate:
+      warning: 0.01  # 1% of requests
+      critical: 0.05  # 5% of requests
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+  etcd:
+    fsync_duration:
+      warning: 0.1  # Seconds
+      critical: 0.5  # Seconds
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+    leader_changes:
+      warning: 1  # Number of leader changes
+      critical: 3  # Number of leader changes
+      duration: 3600  # Seconds (1 hour)
+      anomaly_sensitivity: 1.0  # Multiplier for anomaly detection
+  scheduler:
+    scheduling_latency:
+      warning: 1.0  # Seconds
+      critical: 5.0  # Seconds
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+  controller_manager:
+    queue_depth:
+      warning: 100  # Number of items
+      critical: 500  # Number of items
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+
+# Application-specific thresholds
+application:
+  # Demo application thresholds
+  demo_app:
+    latency:
+      warning: 0.5  # Seconds
+      critical: 2.0  # Seconds
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+    error_rate:
+      warning: 0.05  # 5% of requests
+      critical: 0.1  # 10% of requests
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+    cpu_usage:
+      warning: 80  # Percentage
+      critical: 95  # Percentage
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+    memory_usage:
+      warning: 85  # Percentage
+      critical: 95  # Percentage
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.3  # Multiplier for anomaly detection
+
+  # SelfHealing Sentinel components thresholds
+  sentinel_api:
+    latency:
+      warning: 0.5  # Seconds
+      critical: 2.0  # Seconds
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+    error_rate:
+      warning: 0.05  # 5% of requests
+      critical: 0.1  # 10% of requests
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+
+  anomaly_detector:
+    processing_time:
+      warning: 5.0  # Seconds
+      critical: 15.0  # Seconds
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+    false_positive_rate:
+      warning: 0.1  # 10% of detections
+      critical: 0.2  # 20% of detections
+      duration: 3600  # Seconds (1 hour)
+      anomaly_sensitivity: 1.2  # Multiplier for anomaly detection
+
+  remediation_orchestrator:
+    action_latency:
+      warning: 10.0  # Seconds
+      critical: 30.0  # Seconds
+      duration: 300  # Seconds (5 minutes)
+      anomaly_sensitivity: 1.5  # Multiplier for anomaly detection
+    failure_rate:
+      warning: 0.1  # 10% of actions
+      critical: 0.2  # 20% of actions
+      duration: 3600  # Seconds (1 hour)
+      anomaly_sensitivity: 1.2  # Multiplier for anomaly detection
+
+# Machine learning model thresholds
+ml_models:
+  isolation_forest:
+    contamination: 0.05  # Expected proportion of anomalies
+    score_threshold: -0.2  # Anomaly score threshold
+    training_samples_min: 1000  # Minimum number of samples for training
+    retraining_interval: 86400  # Seconds (24 hours)
+
+  one_class_svm:
+    nu: 0.1  # Upper bound on the fraction of training errors
+    score_threshold: 0.0  # Anomaly score threshold
+    training_samples_min: 1000  # Minimum number of samples for training
+    retraining_interval: 86400  # Seconds (24 hours)
+
+  local_outlier_factor:
+    contamination: 0.05  # Expected proportion of anomalies
+    n_neighbors: 20  # Number of neighbors to consider
+    score_threshold: 1.5  # Anomaly score threshold
+    training_samples_min: 1000  # Minimum number of samples for training
+    retraining_interval: 86400  # Seconds (24 hours)
+
+# Time series anomaly detection thresholds
+time_series:
+  # Seasonal decomposition parameters
+  seasonal_decompose:
+    period: 1440  # Minutes in a day (for daily seasonality)
+    trend_threshold: 3.0  # Standard deviations from trend
+    seasonal_threshold: 3.0  # Standard deviations from seasonal component
+    residual_threshold: 3.0  # Standard deviations from residual
+
+  # Exponential weighted moving average parameters
+  ewma:
+    span: 60  # Minutes
+    threshold: 3.0  # Standard deviations
+
+  # Autoregressive integrated moving average parameters
+  arima:
+    order: [5, 1, 0]  # (p, d, q) parameters
+    threshold: 3.0  # Standard deviations
+
+# Custom metric thresholds
+custom_metrics:
+  # Add custom metrics here as needed
+  example_metric:
+    warning: 100
+    critical: 200
+    duration: 300  # Seconds (5 minutes)
+    anomaly_sensitivity: 1.5  # Multiplier for anomaly detection

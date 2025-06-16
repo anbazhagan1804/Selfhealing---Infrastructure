@@ -1,0 +1,184 @@
+groups:
+- name: node_alerts
+  rules:
+  - alert: NodeNotReady
+    expr: kube_node_status_condition{condition="Ready", status="true"} == 0
+    for: 5m
+    labels:
+      severity: critical
+      category: node
+    annotations:
+      summary: Node {{ $labels.node }} not ready
+      description: Node {{ $labels.node }} has been in NotReady state for more than 5 minutes
+      remediation_action: restart_node
+
+  - alert: NodeHighCPU
+    expr: instance:node_cpu_utilisation:rate5m > 0.9
+    for: 10m
+    labels:
+      severity: warning
+      category: node
+    annotations:
+      summary: Node {{ $labels.instance }} high CPU usage
+      description: Node {{ $labels.instance }} has high CPU usage (> 90%) for more than 10 minutes
+      remediation_action: investigate
+
+  - alert: NodeHighMemoryUsage
+    expr: instance:node_memory_utilisation:ratio > 0.85
+    for: 10m
+    labels:
+      severity: warning
+      category: node
+    annotations:
+      summary: Node {{ $labels.instance }} high memory usage
+      description: Node {{ $labels.instance }} has high memory usage (> 85%) for more than 10 minutes
+      remediation_action: investigate
+
+  - alert: NodeDiskPressure
+    expr: kube_node_status_condition{condition="DiskPressure", status="true"} == 1
+    for: 5m
+    labels:
+      severity: critical
+      category: node
+    annotations:
+      summary: Node {{ $labels.node }} under disk pressure
+      description: Node {{ $labels.node }} is under disk pressure for more than 5 minutes
+      remediation_action: clean_disk
+
+  - alert: NodeNetworkUnavailable
+    expr: kube_node_status_condition{condition="NetworkUnavailable", status="true"} == 1
+    for: 5m
+    labels:
+      severity: critical
+      category: node
+    annotations:
+      summary: Node {{ $labels.node }} network unavailable
+      description: Node {{ $labels.node }} network has been unavailable for more than 5 minutes
+      remediation_action: restart_network
+
+- name: pod_alerts
+  rules:
+  - alert: PodCrashLooping
+    expr: rate(kube_pod_container_status_restarts_total[15m]) > 0.2
+    for: 15m
+    labels:
+      severity: critical
+      category: pod
+    annotations:
+      summary: Pod {{ $labels.pod }} in {{ $labels.namespace }} is crash looping
+      description: Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting frequently
+      remediation_action: restart_pod
+
+  - alert: PodNotReady
+    expr: sum by(namespace, pod) (kube_pod_status_phase{phase=~"Pending|Unknown"}) > 0
+    for: 15m
+    labels:
+      severity: warning
+      category: pod
+    annotations:
+      summary: Pod {{ $labels.pod }} in {{ $labels.namespace }} not ready
+      description: Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been in non-ready state for more than 15 minutes
+      remediation_action: recreate_pod
+
+  - alert: PodHighCPU
+    expr: sum(rate(container_cpu_usage_seconds_total{container!="", container!="POD"}[5m])) by (namespace, pod, container) / sum(kube_pod_container_resource_limits_cpu_cores) by (namespace, pod, container) > 0.9
+    for: 10m
+    labels:
+      severity: warning
+      category: pod
+    annotations:
+      summary: Pod {{ $labels.pod }} in {{ $labels.namespace }} high CPU usage
+      description: Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has high CPU usage (> 90% of limit) for more than 10 minutes
+      remediation_action: scale_deployment
+
+  - alert: PodHighMemory
+    expr: sum(container_memory_working_set_bytes{container!="", container!="POD"}) by (namespace, pod, container) / sum(kube_pod_container_resource_limits_memory_bytes) by (namespace, pod, container) > 0.85
+    for: 10m
+    labels:
+      severity: warning
+      category: pod
+    annotations:
+      summary: Pod {{ $labels.pod }} in {{ $labels.namespace }} high memory usage
+      description: Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has high memory usage (> 85% of limit) for more than 10 minutes
+      remediation_action: scale_deployment
+
+- name: service_alerts
+  rules:
+  - alert: ServiceHighErrorRate
+    expr: sum(rate(http_requests_total{status=~"5.."}[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service) > 0.05
+    for: 5m
+    labels:
+      severity: critical
+      category: service
+    annotations:
+      summary: Service {{ $labels.service }} has high error rate
+      description: Service {{ $labels.service }} has error rate above 5% for more than 5 minutes
+      remediation_action: restart_service
+
+  - alert: ServiceHighLatency
+    expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (service, le)) > 0.5
+    for: 5m
+    labels:
+      severity: warning
+      category: service
+    annotations:
+      summary: Service {{ $labels.service }} has high latency
+      description: Service {{ $labels.service }} has 95th percentile latency above 500ms for more than 5 minutes
+      remediation_action: scale_service
+
+  - alert: ServiceEndpointDown
+    expr: kube_endpoint_address_available{endpoint!=""} == 0
+    for: 5m
+    labels:
+      severity: critical
+      category: service
+    annotations:
+      summary: Service endpoint {{ $labels.endpoint }} in {{ $labels.namespace }} has no available addresses
+      description: Service endpoint {{ $labels.endpoint }} in namespace {{ $labels.namespace }} has no available addresses for more than 5 minutes
+      remediation_action: recreate_deployment
+
+- name: system_alerts
+  rules:
+  - alert: KubeletDown
+    expr: absent(up{job="kubelet"} == 1)
+    for: 5m
+    labels:
+      severity: critical
+      category: system
+    annotations:
+      summary: Kubelet on {{ $labels.instance }} is down
+      description: Kubelet on {{ $labels.instance }} has been down for more than 5 minutes
+      remediation_action: restart_kubelet
+
+  - alert: APIServerDown
+    expr: absent(up{job="apiserver"} == 1)
+    for: 5m
+    labels:
+      severity: critical
+      category: system
+    annotations:
+      summary: Kubernetes API server is down
+      description: Kubernetes API server has been down for more than 5 minutes
+      remediation_action: notify_admin
+
+  - alert: SchedulerDown
+    expr: absent(up{job="kube-scheduler"} == 1)
+    for: 5m
+    labels:
+      severity: critical
+      category: system
+    annotations:
+      summary: Kubernetes scheduler is down
+      description: Kubernetes scheduler has been down for more than 5 minutes
+      remediation_action: restart_scheduler
+
+  - alert: ControllerManagerDown
+    expr: absent(up{job="kube-controller-manager"} == 1)
+    for: 5m
+    labels:
+      severity: critical
+      category: system
+    annotations:
+      summary: Kubernetes controller manager is down
+      description: Kubernetes controller manager has been down for more than 5 minutes
+      remediation_action: restart_controller_manager

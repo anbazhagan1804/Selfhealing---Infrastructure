@@ -1,0 +1,218 @@
+# SelfHealing Sentinel - Global Configuration
+
+# System settings
+system:
+  name: "SelfHealing Sentinel"
+  version: "1.0.0"
+  environment: "development"  # Options: development, staging, production
+  log_level: "info"  # Options: debug, info, warning, error, critical
+  log_format: "json"  # Options: json, text
+  log_file: "logs/sentinel.log"
+  enable_metrics: true
+  metrics_port: 8081
+  enable_profiling: false
+
+# API settings
+api:
+  host: "0.0.0.0"
+  port: 8080
+  debug: true
+  cors_origins: ["*"]
+  rate_limit: 100  # Requests per minute
+  timeout: 30  # Seconds
+  auth_enabled: false
+  jwt_secret: "change_this_in_production"
+  jwt_expiry: 86400  # 24 hours in seconds
+
+# Monitoring settings
+monitoring:
+  prometheus:
+    url: "http://prometheus:9090"
+    scrape_interval: 15  # Seconds
+    evaluation_interval: 15  # Seconds
+    retention_time: 15d  # 15 days
+    max_samples: 5000000
+  alertmanager:
+    url: "http://alertmanager:9093"
+    resolve_timeout: 5m
+  grafana:
+    url: "http://grafana:3000"
+    username: "admin"
+    password: "sentinel123"  # Change in production
+    auto_create_dashboards: true
+
+# Kubernetes settings
+kubernetes:
+  namespace: "self-healing-sentinel"
+  in_cluster: true  # Set to false for local development
+  kubeconfig_path: "~/.kube/config"  # Used when in_cluster is false
+  context: ""  # Leave empty to use current context
+  resource_quotas:
+    enabled: true
+    cpu_limit: "4"
+    memory_limit: "8Gi"
+  pod_security_policies:
+    enabled: true
+
+# KEDA settings
+keda:
+  enabled: true
+  polling_interval: 30  # Seconds
+  cooldown_period: 300  # Seconds
+  min_replicas: 1
+  max_replicas: 10
+  triggers:
+    cpu_threshold: 70  # Percentage
+    memory_threshold: 70  # Percentage
+    http_requests_per_second: 100
+
+# Ansible settings
+ansible:
+  inventory_path: "ansible/inventory"
+  playbooks_path: "ansible/playbooks"
+  private_key_path: "~/.ssh/id_rsa"
+  become: true
+  become_user: "root"
+  timeout: 300  # Seconds
+  parallel_executions: 5
+  retry_limit: 3
+  retry_interval: 60  # Seconds
+
+# Anomaly detection settings
+anomaly_detection:
+  enabled: true
+  algorithms:
+    - name: "isolation_forest"
+      enabled: true
+      contamination: 0.05
+      n_estimators: 100
+      random_state: 42
+    - name: "one_class_svm"
+      enabled: false
+      nu: 0.1
+      kernel: "rbf"
+      gamma: "scale"
+    - name: "local_outlier_factor"
+      enabled: false
+      n_neighbors: 20
+      contamination: 0.05
+  training:
+    schedule: "0 0 * * *"  # Daily at midnight (cron format)
+    min_samples: 1000
+    max_samples: 100000
+    train_on_startup: true
+    save_model_path: "models/"
+  prediction:
+    batch_size: 100
+    interval: 60  # Seconds
+    threshold_sensitivity: 1.0  # Multiplier for detection thresholds
+
+# Remediation settings
+remediation:
+  enabled: true
+  max_concurrent_actions: 5
+  default_cooldown: 300  # Seconds
+  action_timeout: 120  # Seconds
+  retry_failed_actions: true
+  max_retries: 3
+  retry_interval: 60  # Seconds
+  escalation_enabled: true
+  escalation_delay: 1800  # 30 minutes in seconds
+  notification:
+    on_action_start: true
+    on_action_success: true
+    on_action_failure: true
+    on_escalation: true
+  actions:
+    restart_pod:
+      enabled: true
+      cooldown: 300  # Seconds
+      max_attempts: 3
+      requires_approval: false
+    scale_deployment:
+      enabled: true
+      cooldown: 600  # Seconds
+      max_attempts: 2
+      requires_approval: false
+    recreate_deployment:
+      enabled: true
+      cooldown: 1800  # Seconds
+      max_attempts: 1
+      requires_approval: true
+    restart_node:
+      enabled: true
+      cooldown: 3600  # Seconds
+      max_attempts: 1
+      requires_approval: true
+    drain_node:
+      enabled: true
+      cooldown: 3600  # Seconds
+      max_attempts: 1
+      requires_approval: true
+    cordon_node:
+      enabled: true
+      cooldown: 1800  # Seconds
+      max_attempts: 2
+      requires_approval: false
+
+# Notification settings
+notification:
+  enabled: true
+  channels:
+    email:
+      enabled: false
+      smtp_server: "smtp.example.com"
+      smtp_port: 587
+      smtp_user: "user@example.com"
+      smtp_password: "password"  # Change in production
+      from_address: "sentinel@example.com"
+      to_addresses: ["admin@example.com"]
+      use_tls: true
+    slack:
+      enabled: true
+      webhook_url: "https://hooks.slack.com/services/TXXXXXXXX/BXXXXXXXX/XXXXXXXXXXXXXXXXXXXXXXXX"
+      channel: "#alerts"
+      username: "SelfHealing Sentinel"
+      icon_emoji: ":robot_face:"
+    webhook:
+      enabled: false
+      url: "https://example.com/webhook"
+      method: "POST"
+      headers:
+        Content-Type: "application/json"
+        Authorization: "Bearer token"
+      timeout: 10  # Seconds
+
+# Security settings
+security:
+  encryption_key: "change_this_in_production"
+  enable_audit_logging: true
+  audit_log_path: "logs/audit.log"
+  sensitive_fields:
+    - "password"
+    - "token"
+    - "secret"
+    - "key"
+  rbac_enabled: false
+  roles:
+    admin:
+      - "*"
+    operator:
+      - "read:*"
+      - "write:remediation"
+      - "write:configuration"
+    viewer:
+      - "read:*"
+
+# Demo application settings
+demo:
+  enabled: true
+  port: 8000
+  inject_failures: true
+  failure_probability: 0.05  # 5% chance of failure
+  failure_types:
+    - "high_cpu"
+    - "memory_leak"
+    - "slow_response"
+    - "error_500"
+  auto_recover: false
